@@ -59,7 +59,7 @@ class ButterStore(Store.Store):
         if uuid is None:
             return None
 
-        return Store.Volume(uuid, gen, bvol.totalSize, bvol.exclusiveSize)
+        return Store.Volume(uuid, gen, bvol.totalSize, bvol.exclusiveSize, bvol.otime)
 
     def _fillVolumesAndPaths(self, paths):
         """ Fill in paths.

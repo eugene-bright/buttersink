@@ -160,7 +160,7 @@ class BestDiffs:
         def sortKey(node):
             if node is None:
                 return None
-            return (node.intermediate, self._totalSize(node))
+            return (node.intermediate, self._totalSize(node), node.volume.otime)
 
         while len(nodes) > 0:
             logger.debug("Analyzing %d nodes for height %d...", len(nodes), height)
@@ -301,7 +301,7 @@ class BestDiffs:
     def iterDiffs(self):
         """ Return all diffs used in optimal network. """
         nodes = self.nodes.values()
-        nodes.sort(key=lambda node: self._height(node))
+        nodes.sort(key=lambda node: (self._height(node), node.volume.otime))
         for node in nodes:
             yield node.diff
             # yield { 'from': node.previous, 'to': node.uuid, 'sink': node.diffSink,

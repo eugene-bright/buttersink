@@ -15,6 +15,7 @@ import ioctl
 import logging
 import os.path
 
+
 logger = logging.getLogger(__name__)
 # logger.setLevel('DEBUG')
 
@@ -374,6 +375,11 @@ class _Volume(object):
         self.info = info
 
         self.links = {}
+
+        # Snapshot creation time in seconds.
+        # Some accuracy is lost
+        otime_total_ns = info.otime.sec * (10 ** 9) + info.otime.nsec
+        self.otime = otime_total_ns / float(10 ** 9)
 
         assert rootid not in self.fileSystem.volumes, rootid
         self.fileSystem.volumes[rootid] = self

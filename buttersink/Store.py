@@ -390,13 +390,14 @@ class Volume:
 
     """ Represents a snapshot. """
 
-    def __init__(self, uuid, gen, size=None, exclusiveSize=None):
+    def __init__(self, uuid, gen, size=None, exclusiveSize=None, otime=None):
         """ Initialize. """
         assert uuid is not None
         self._uuid = uuid  # Must never change!
         self.size = size
         self.exclusiveSize = exclusiveSize
         self.gen = gen
+        self.otime = otime
 
     def __cmp__(self, vol):
         """ Compare. """
