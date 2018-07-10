@@ -68,9 +68,12 @@ command.add_argument('-n', '--dry-run', action="store_true",
 command.add_argument('-d', '--delete', action="store_true",
                      help='delete any snapshots in <dst> that are not in <src>',
                      )
-command.add_argument('-e', '--estimate', action="store_true",
-                     help='use estimated size instead of measuring diffs with a local test send',
-                     )
+command.add_argument('-e', '--estimate', action="count",
+                     help=(
+                         'use estimated size instead of measuring diffs '
+                         'with a local test send. '
+                         'Use it twice to disable relying on quota too.'
+                     ))
 
 command.add_argument('-q', '--quiet', action="store_true",
                      help='only display error messages',
@@ -196,6 +199,9 @@ def main():
     try:
         args = command.parse_args()
 
+        # Use btrfs quota information
+        useQuota = args.estimate < 2
+
         _setupLogging(args.quiet, args.logfile, args.server)
 
         logger.debug("Version: %s, Arguments: %s", theVersion, vars(args))
@@ -220,6 +226,9 @@ def main():
             dest.showProgress = True
 
         with source:
+            if useQuota:
+                source.rescanSizes()
+
             try:
                 next(source.listVolumes())
             except StopIteration:

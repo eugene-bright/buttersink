@@ -335,3 +335,6 @@ class ButterStore(Store.Store):
             if self._skipDryRun(logger, 'INFO', dryrun=dryrun)("Delete subvolume %s", path):
                 continue
             self.butterVolumes[vol.uuid].destroy()
+
+    def rescanSizes(self):
+        self.btrfs.rescanSizes()

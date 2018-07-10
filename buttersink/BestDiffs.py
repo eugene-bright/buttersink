@@ -74,11 +74,11 @@ class _Node:
             if n.diff is None:
                 continue
 
-            total.size += n.diff.size
+            total.size += (n.diff.size or 0)
 
             sink = sinks[n.diff.sink]
             sink.count += 1
-            sink.size += n.diff.size
+            sink.size += (n.diff.size or 0)
 
         sinksSorted = collections.OrderedDict(
             {s: b for s, b in sinks.items() if s is not None}
@@ -205,7 +205,7 @@ class BestDiffs:
 
                         logger.debug("Considering %s", edge)
 
-                        edgeSize = edge.size
+                        edgeSize = (edge.size or 0)
                         if edge.sizeIsEstimated:
                             if willMeasureLater:
                                 # Slight preference for accurate sizes
