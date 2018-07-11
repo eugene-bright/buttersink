@@ -302,7 +302,12 @@ class BestDiffs:
         """ Return all diffs used in optimal network. """
         nodes = self.nodes.values()
         nodes.sort(key=lambda node: (self._height(node), node.volume.otime))
+
         for node in nodes:
+            # we are not interested in those already transferred
+            if node.volume in self.dest.paths:
+                continue
+
             yield node.diff
             # yield { 'from': node.previous, 'to': node.uuid, 'sink': node.diffSink,
 
