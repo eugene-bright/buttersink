@@ -263,7 +263,7 @@ def main():
                     return 0
 
                 with dest:
-                    volumes = source.listVolumes()
+                    volumes = list(source.listVolumes())
                     if args.exclude:
                         def is_excluded(vol):
                             for path in source.getPaths(vol):
@@ -271,9 +271,34 @@ def main():
                                     if re.match(pattern, path):
                                         return True
                             return False
-                        volumes = (vol for vol in volumes if not is_excluded(vol))
-                    best = BestDiffs.BestDiffs(volumes, args.delete, not args.estimate)
-                    best.analyze(args.part_size << 20, source, dest)
+                        volumes = [vol for vol in volumes if not is_excluded(vol)]
+                    if useQuota:
+                        best = BestDiffs.BestDiffs(volumes, args.delete, not args.estimate)
+                        best.analyze(args.part_size << 20, source, dest)
+                    else:
+                        destVolumes = list(dest.listVolumes())
+                        commonVolumes = list(set(volumes) & set(destVolumes))
+                        missingVolumes = list(set(volumes) - set(destVolumes))
+                        missingVolumeUUIDs = {vol.uuid for vol in missingVolumes}
+                        if not missingVolumes:
+                            break
+
+                        latestCommonVolume = None
+                        commonVolumes.sort(key=lambda v: v.otime)
+                        if commonVolumes:
+                            latestCommonVolume = commonVolumes[-1]
+                        diffs = source.getEdges(latestCommonVolume)
+
+                        missingDiffs = [
+                                diff for diff in diffs
+                                if diff.toUUID in missingVolumeUUIDs]
+                        missingDiffs.sort(key=lambda d: d.toVol.otime)
+
+                        oldestMissingDiff = missingDiffs[0]
+                        oldestMissingDiff.sendTo(dest, chunkSize=args.part_size << 20)
+
+                        continue
+
                     summary = best.summary()
                     logger.info("Optimal synchronization:")
                     for sink, values in summary.items():

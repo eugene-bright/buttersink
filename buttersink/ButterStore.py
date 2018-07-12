@@ -48,7 +48,8 @@ class ButterStore(Store.Store):
         self.butterVolumes = {}   # Dict of {uuid: <btrfs.Volume>}
         self.extraVolumes = {}  # Will hold volumes inside store directory, but no longer in source
 
-    def _btrfsVol2StoreVol(self, bvol):
+    @classmethod
+    def _btrfsVol2StoreVol(cls, bvol):
         if bvol.received_uuid is not None:
             uuid = bvol.received_uuid
             gen = bvol.sent_gen
@@ -195,8 +196,8 @@ class ButterStore(Store.Store):
         fromGen = fromBVol.current_gen
         genDiff = abs(toBVol.current_gen - fromGen)
 
-        estimatedSize = max(0, toBVol.totalSize - fromBVol.totalSize)
-        estimatedSize += toBVol.totalSize * (1 - math.exp(-changeRate * genDiff))
+        estimatedSize = max(0, (toBVol.totalSize or 0) - (fromBVol.totalSize or 0))
+        estimatedSize += (toBVol.totalSize or 0) * (1 - math.exp(-changeRate * genDiff))
         estimatedSize = max(toBVol.exclusiveSize, estimatedSize)
 
         return estimatedSize
@@ -256,16 +257,16 @@ class ButterStore(Store.Store):
         diffs = 0
         minGen = bvols[0].current_gen
         maxGen = minGen
-        minSize = bvols[0].totalSize
+        minSize = bvols[0].totalSize or 0
         maxSize = minSize
 
         for vol in bvols:
-            total += vol.totalSize
-            diffs += vol.exclusiveSize
+            total += vol.totalSize or 0
+            diffs += vol.exclusiveSize or 0
             minGen = min(minGen, vol.current_gen)
             maxGen = max(maxGen, vol.current_gen)
-            minSize = min(minSize, vol.totalSize)
-            maxSize = max(maxSize, vol.totalSize)
+            minSize = min(minSize, vol.totalSize or 0)
+            maxSize = max(maxSize, vol.totalSize or 0)
 
         try:
             # exclusiveSize is often useless,
