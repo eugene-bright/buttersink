@@ -74,11 +74,11 @@ class _Node:
             if n.diff is None:
                 continue
 
-            total.size += n.diff.size
+            total.size += (n.diff.size or 0)
 
             sink = sinks[n.diff.sink]
             sink.count += 1
-            sink.size += n.diff.size
+            sink.size += (n.diff.size or 0)
 
         sinksSorted = collections.OrderedDict(
             {s: b for s, b in sinks.items() if s is not None}
@@ -160,7 +160,7 @@ class BestDiffs:
         def sortKey(node):
             if node is None:
                 return None
-            return (node.intermediate, self._totalSize(node))
+            return (node.intermediate, self._totalSize(node), node.volume.otime)
 
         while len(nodes) > 0:
             logger.debug("Analyzing %d nodes for height %d...", len(nodes), height)
@@ -205,7 +205,7 @@ class BestDiffs:
 
                         logger.debug("Considering %s", edge)
 
-                        edgeSize = edge.size
+                        edgeSize = (edge.size or 0)
                         if edge.sizeIsEstimated:
                             if willMeasureLater:
                                 # Slight preference for accurate sizes
@@ -301,8 +301,13 @@ class BestDiffs:
     def iterDiffs(self):
         """ Return all diffs used in optimal network. """
         nodes = self.nodes.values()
-        nodes.sort(key=lambda node: self._height(node))
+        nodes.sort(key=lambda node: (self._height(node), node.volume.otime))
+
         for node in nodes:
+            # we are not interested in those already transferred
+            if node.volume in self.dest.paths:
+                continue
+
             yield node.diff
             # yield { 'from': node.previous, 'to': node.uuid, 'sink': node.diffSink,
 

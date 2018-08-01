@@ -68,9 +68,12 @@ command.add_argument('-n', '--dry-run', action="store_true",
 command.add_argument('-d', '--delete', action="store_true",
                      help='delete any snapshots in <dst> that are not in <src>',
                      )
-command.add_argument('-e', '--estimate', action="store_true",
-                     help='use estimated size instead of measuring diffs with a local test send',
-                     )
+command.add_argument('-e', '--estimate', action="count",
+                     help=(
+                         'use estimated size instead of measuring diffs '
+                         'with a local test send. '
+                         'Use it twice to disable relying on quota too.'
+                     ))
 
 command.add_argument('-q', '--quiet', action="store_true",
                      help='only display error messages',
@@ -196,6 +199,9 @@ def main():
     try:
         args = command.parse_args()
 
+        # Use btrfs quota information
+        useQuota = args.estimate < 2
+
         _setupLogging(args.quiet, args.logfile, args.server)
 
         logger.debug("Version: %s, Arguments: %s", theVersion, vars(args))
@@ -204,76 +210,116 @@ def main():
             server = SSHStore.StoreProxyServer(args.dest, args.mode)
             return(server.run())
 
-        source = parseSink(args.source, False, args.delete, args.dry_run)
+        logger.info("Snapshot graph is rebuilt after every transfer completion.")
+        logger.info("Look at option \033[1m-e\033[0m if you want to speed up the process.")
 
-        dest = parseSink(args.dest, source is not None, args.delete, args.dry_run)
+        round = 0
 
-        if source is None:
-            source = dest
-            dest = None
+        while True:
+            round += 1
+            logger.info("Iteration number %s", round)
 
-        if not sys.stderr.isatty():
-            source.showProgress = dest.showProgress = False
-        elif dest is None or (source.isRemote and not dest.isRemote):
-            source.showProgress = True
-        else:
-            dest.showProgress = True
+            source = parseSink(args.source, False, args.delete, args.dry_run)
 
-        with source:
-            try:
-                next(source.listVolumes())
-            except StopIteration:
-                logger.warn("No snapshots in source.")
-                path = args.source or args.dest
-                if path.endswith("/"):
-                    logger.error(
-                        "'%s' does not contain any snapshots.  Did you mean to type '%s'?",
-                        path, path[0:-1]
-                    )
-                else:
-                    logger.error(
-                        "'%s' is not a snapshot.  Did you mean to type '%s/'?",
-                        path, path
-                    )
-                return 1
+            dest = parseSink(args.dest, source is not None, args.delete, args.dry_run)
 
-            if dest is None:
-                for item in source.listContents():
-                    print(item)
-                if args.delete:
-                    source.deletePartials()
-                return 0
+            if source is None:
+                source = dest
+                dest = None
 
-            with dest:
-                volumes = source.listVolumes()
-                if args.exclude:
-                    def is_excluded(vol):
-                        for path in source.getPaths(vol):
-                            for pattern in args.exclude:
-                                if re.match(pattern, path):
-                                    return True
-                        return False
-                    volumes = (vol for vol in volumes if not is_excluded(vol))
-                best = BestDiffs.BestDiffs(volumes, args.delete, not args.estimate)
-                best.analyze(args.part_size << 20, source, dest)
+            if not sys.stderr.isatty():
+                source.showProgress = dest.showProgress = False
+            elif dest is None or (source.isRemote and not dest.isRemote):
+                source.showProgress = True
+            else:
+                dest.showProgress = True
 
-                summary = best.summary()
-                logger.info("Optimal synchronization:")
-                for sink, values in summary.items():
-                    logger.info("%s from %d diffs in %s",
-                                humanize(values.size),
-                                values.count,
-                                sink or "TOTAL",
-                                )
+            with source:
+                if useQuota:
+                    source.rescanSizes()
 
-                for diff in best.iterDiffs():
-                    if diff is None:
-                        raise Exception("Missing diff.  Can't fully replicate.")
+                try:
+                    next(source.listVolumes())
+                except StopIteration:
+                    logger.warn("No snapshots in source.")
+                    path = args.source or args.dest
+                    if path.endswith("/"):
+                        logger.error(
+                            "'%s' does not contain any snapshots.  Did you mean to type '%s'?",
+                            path, path[0:-1]
+                        )
                     else:
-                        diff.sendTo(dest, chunkSize=args.part_size << 20)
+                        logger.error(
+                            "'%s' is not a snapshot.  Did you mean to type '%s/'?",
+                            path, path
+                        )
+                    return 1
 
-                if args.delete:
-                    dest.deleteUnused()
+                if dest is None:
+                    for item in source.listContents():
+                        print(item)
+                    if args.delete:
+                        source.deletePartials()
+                    return 0
+
+                with dest:
+                    volumes = list(source.listVolumes())
+                    if args.exclude:
+                        def is_excluded(vol):
+                            for path in source.getPaths(vol):
+                                for pattern in args.exclude:
+                                    if re.match(pattern, path):
+                                        return True
+                            return False
+                        volumes = [vol for vol in volumes if not is_excluded(vol)]
+                    if useQuota:
+                        best = BestDiffs.BestDiffs(volumes, args.delete, not args.estimate)
+                        best.analyze(args.part_size << 20, source, dest)
+                    else:
+                        destVolumes = list(dest.listVolumes())
+                        commonVolumes = list(set(volumes) & set(destVolumes))
+                        missingVolumes = list(set(volumes) - set(destVolumes))
+                        missingVolumeUUIDs = {vol.uuid for vol in missingVolumes}
+                        if not missingVolumes:
+                            break
+
+                        latestCommonVolume = None
+                        commonVolumes.sort(key=lambda v: v.otime)
+                        if commonVolumes:
+                            latestCommonVolume = commonVolumes[-1]
+                        diffs = source.getEdges(latestCommonVolume)
+
+                        missingDiffs = [
+                                diff for diff in diffs
+                                if diff.toUUID in missingVolumeUUIDs]
+                        missingDiffs.sort(key=lambda d: d.toVol.otime)
+
+                        oldestMissingDiff = missingDiffs[0]
+                        oldestMissingDiff.sendTo(dest, chunkSize=args.part_size << 20)
+
+                        continue
+
+                    summary = best.summary()
+                    logger.info("Optimal synchronization:")
+                    for sink, values in summary.items():
+                        logger.info("%s from %d diffs in %s",
+                                    humanize(values.size),
+                                    values.count,
+                                    sink or "TOTAL",
+                                    )
+
+                    try:
+                        # take only first diff
+                        diff = next(best.iterDiffs())
+                        if diff is None:
+                            raise Exception("Missing diff.  Can't fully replicate.")
+                        else:
+                            diff.sendTo(dest, chunkSize=args.part_size << 20)
+                    except StopIteration:
+                        logger.info("No snapshots left to transfer.")
+                        if args.delete:
+                            dest.deleteUnused()
+                        break
 
         logger.debug("Successful exit")
 

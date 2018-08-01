@@ -15,6 +15,7 @@ import ioctl
 import logging
 import os.path
 
+
 logger = logging.getLogger(__name__)
 # logger.setLevel('DEBUG')
 
@@ -375,6 +376,11 @@ class _Volume(object):
 
         self.links = {}
 
+        # Snapshot creation time in seconds.
+        # Some accuracy is lost
+        otime_total_ns = info.otime.sec * (10 ** 9) + info.otime.nsec
+        self.otime = otime_total_ns / float(10 ** 9)
+
         assert rootid not in self.fileSystem.volumes, rootid
         self.fileSystem.volumes[rootid] = self
 
@@ -495,7 +501,6 @@ class FileSystem(ioctl.Device):
         self._getDevices()
         self._getRoots()
         self._getMounts()
-        self._getUsage()
 
         volumes = self.volumes.values()
         volumes.sort(key=(lambda v: v.fullPath))
@@ -669,16 +674,16 @@ class FileSystem(ioctl.Device):
                     self.defaultID = info.location.objectid
                 logger.debug("Found dir '%s' is %d", name, self.defaultID)
 
-    def _getUsage(self):
+    def rescanSizes(self):
         try:
             self._rescanSizes(False)
-            self._unsafeGetUsage()
+            self._getUsage()
         except (IOError, _BtrfsError) as error:
             logger.warn("%s", error)
             self._rescanSizes()
-            self._unsafeGetUsage()
+            self._getUsage()
 
-    def _unsafeGetUsage(self):
+    def _getUsage(self):
         for (header, buf) in self._walkTree(BTRFS_QUOTA_TREE_OBJECTID):
             # logger.debug("%s %s", objectTypeNames[header.type], header)
 
